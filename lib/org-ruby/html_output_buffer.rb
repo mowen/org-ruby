@@ -121,7 +121,7 @@ module Orgmode
           begin
             str = Pygments.highlight(@buffer, :lexer => lang, :formatter => 'html', :options => {:encoding => 'utf-8'})
             str = str.match(/<pre>(.+)<\/pre>/m)[1].to_s.gsub(/ *$/, '') #strip out divs <div class="highlight">
-            @buffer = tableize_code(code)
+            @buffer = tableize_code(str)
           rescue
             # Not supported lexer from Pygments, we fallback on using the text lexer
             @buffer = Pygments.highlight(@buffer, :lexer => 'text')
