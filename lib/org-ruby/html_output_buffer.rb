@@ -119,7 +119,9 @@ module Orgmode
           @new_paragraph = true
 
           begin
-            @buffer = Pygments.highlight(@buffer, :lexer => lang)
+            str = Pygments.highlight(@buffer, :lexer => lang, :formatter => 'html', :options => {:encoding => 'utf-8'})
+            str = str.match(/<pre>(.+)<\/pre>/m)[1].to_s.gsub(/ *$/, '') #strip out divs <div class="highlight">
+            @buffer = tableize_code(code)
           rescue
             # Not supported lexer from Pygments, we fallback on using the text lexer
             @buffer = Pygments.highlight(@buffer, :lexer => 'text')
@@ -184,6 +186,16 @@ module Orgmode
         end
       end
       @buffer = ""
+    end
+
+    def tableize_code (str, lang = '')
+      table = '<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers">'
+      code = ''
+      str.lines.each_with_index do |line,index|
+        table += "<span class='line-number'>#{index+1}</span>\n"
+        code  += "<span class='line'>#{line}</span>"
+      end
+      table += "</pre></td><td class='code'><pre><code class='#{lang}'>#{code}</code></pre></td></tr></table></div>"
     end
 
     def add_line_attributes headline
