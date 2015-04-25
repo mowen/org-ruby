@@ -66,13 +66,19 @@ module Orgmode
       @line =~ PropertyDrawerItemRegexp
     end
 
+    def property_drawer_item
+      @line =~ PropertyDrawerItemRegexp
+
+      [$1, $2]
+    end
+
     # Tests if a line contains metadata instead of actual content.
     def metadata?
       check_assignment_or_regexp(:metadata, /^\s*(CLOCK|DEADLINE|START|CLOSED|SCHEDULED):/)
     end
 
     def nonprinting?
-      comment? || metadata? || begin_block? || end_block?
+      comment? || metadata? || begin_block? || end_block? || include_file?
     end
 
     def blank?
@@ -216,6 +222,30 @@ module Orgmode
       else
         @line =~ InBufferSettingRegexp
       end
+    end
+
+    LinkAbbrevRegexp = /^\s*#\+LINK:\s*(\w+)\s+(.+)$/i
+
+    def link_abbrev?
+      @line =~ LinkAbbrevRegexp
+    end
+
+    def link_abbrev_data
+      [$1, $2] if @line =~ LinkAbbrevRegexp
+    end
+
+    IncludeFileRegexp = /^\s*#\+INCLUDE:\s*"([^"]+)"(\s+([^\s]+)\s+(.*))?$/i
+
+    def include_file?
+      @line =~ IncludeFileRegexp
+    end
+
+    def include_file_path
+      File.expand_path $1 if @line =~ IncludeFileRegexp
+    end
+
+    def include_file_options
+      [$3, $4] if @line =~ IncludeFileRegexp and !$2.nil?
     end
 
     # Determines the paragraph type of the current line.

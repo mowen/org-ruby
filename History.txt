@@ -1,3 +1,26 @@
+== 0.9.1 / 2013-02-13
+
+* Backport CGI::escapeHTML function from Ruby to have same output among different Ruby versions
+
+== 0.9.0 / 2014-02-08
+
+* Add explicit enable or disable of include file feature
+* Add lang attribute to src code block to support syntax highlight in Github
+
+== 0.8.3 / 2014-02-02
+
+* Bugfix: Two backslashes \\ at the end of the line make a line break without breaking paragraph.
+* Bugfix: Fix inline formatting not working for definition lists
+* Add basic markdown exporter
+
+== 0.8.2 / 2013-11-09
+
+* Manage the #+INCLUDE tag in org files (contribution by pierre-lecocq)
+* #+INCLUDE is disabled by default. Needs either ORG_RUBY_INCLUDE_ROOT or 
+  ORG_RUBY_ENABLE_INCLUDE_FILES environment variables in order to be enabled.
+* Link abbreviations with #+LINK tag are supported (by pierre-lecocq too, thanks!)
+* Strip prepended commas added by Emacs Org mode to src/example blocks
+
 == 0.8.1 / 2013-02-17
 
 * Fix for html escaping when code is inline

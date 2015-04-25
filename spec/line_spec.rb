@@ -150,4 +150,16 @@ describe Orgmode::Line do
       l.in_buffer_setting?.should be_nil
     end
   end
+
+  it "should recognize an included file" do
+    Orgmode::Line.new("#+INCLUDE: \"~/somefile.org\"").include_file?.should be_true
+  end
+
+  it "should recognize an included file with specific lines" do
+    Orgmode::Line.new("#+INCLUDE: \"~/somefile.org\" :lines \"4-18\"").include_file?.should be_true
+  end
+
+  it "should recognize an included code file" do
+    Orgmode::Line.new("#+INCLUDE: \"~/somefile.org\" src ruby").include_file?.should be_true
+  end
 end

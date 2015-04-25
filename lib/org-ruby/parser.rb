@@ -81,7 +81,7 @@ module Orgmode
 
     # I can construct a parser object either with an array of lines
     # or with a single string that I will split along \n boundaries.
-    def initialize(lines, offset=0)
+    def initialize(lines, parser_options={ })
       if lines.is_a? Array then
         @lines = lines
       elsif lines.is_a? String then
@@ -96,18 +96,84 @@ module Orgmode
       @header_lines = []
       @in_buffer_settings = { }
       @options = { }
+      @link_abbrevs = { }
+      @parser_options = parser_options
+
+      #
+      # Include file feature disabled by default since 
+      # it would be dangerous in some environments
+      #
+      # http://orgmode.org/manual/Include-files.html
+      #
+      # It will be activated by one of the following:
+      #
+      # - setting an ORG_RUBY_ENABLE_INCLUDE_FILES env variable to 'true'
+      # - setting an ORG_RUBY_INCLUDE_ROOT env variable with the root path
+      # - explicitly enabling it by passing it as an option:
+      #   e.g. Orgmode::Parser.new(org_text, { :allow_include_files => true })
+      #
+      # IMPORTANT: To avoid the feature altogether, it can be _explicitly disabled_ as follows:
+      #   e.g. Orgmode::Parser.new(org_text, { :allow_include_files => false })
+      #
+      if @parser_options[:allow_include_files].nil?
+        if ENV['ORG_RUBY_ENABLE_INCLUDE_FILES'] == 'true' \
+          or not ENV['ORG_RUBY_INCLUDE_ROOT'].nil?
+          @parser_options[:allow_include_files] = true
+        end
+      end
+
+      @parser_options[:offset] ||= 0
+
+      parse_lines @lines
+    end
+
+    # Check include file availability and permissions
+    def check_include_file(file_path)
+      can_be_included = File.exists? file_path
+
+      if not ENV['ORG_RUBY_INCLUDE_ROOT'].nil?
+        # Ensure we have full paths
+        root_path = File.expand_path ENV['ORG_RUBY_INCLUDE_ROOT']
+        file_path = File.expand_path file_path
+
+        # Check if file is in the defined root path and really exists
+        if file_path.slice(0, root_path.length) != root_path
+          can_be_included = false
+        end
+      end
+
+      can_be_included
+    end
+
+    def parse_lines(lines)
       mode = :normal
       previous_line = nil
       table_header_set = false
-      @lines.each do |text|
+      lines.each do |text|
         line = Line.new text, self
+
+        if @parser_options[:allow_include_files]
+          if line.include_file? and not line.include_file_path.nil?
+            next if not check_include_file line.include_file_path
+            include_data = get_include_data line
+            include_lines = Orgmode::Parser.new(include_data, @parser_options).lines
+            parse_lines include_lines
+          end
+        end
+
+        # Store link abbreviations
+        if line.link_abbrev?
+          link_abbrev_data = line.link_abbrev_data
+          @link_abbrevs[link_abbrev_data[0]] = link_abbrev_data[1]
+        end
+
         mode = :normal if line.end_block? and mode == line.paragraph_type
         mode = :normal if line.property_drawer_end_block? and mode == :property_drawer
 
         case mode
         when :normal, :quote, :center
           if Headline.headline? line.to_s
-            line = Headline.new line.to_s, self, offset
+            line = Headline.new line.to_s, self, @parser_options[:offset]
           elsif line.table_separator?
             if previous_line and previous_line.paragraph_type == :table_row and !table_header_set
               previous_line.assigned_paragraph_type = :table_header
@@ -130,7 +196,11 @@ module Orgmode
           end
 
           mode = line.paragraph_type if line.begin_block?
-          mode = :property_drawer if line.property_drawer_begin_block?
+          mode = :property_drawer if previous_line and previous_line.property_drawer_begin_block?
+        end
+
+        if mode == :property_drawer and @current_headline
+          @current_headline.property_drawer[line.property_drawer_item.first] = line.property_drawer_item.last
         end
 
         unless mode == :comment
@@ -142,8 +212,51 @@ module Orgmode
         end
 
         previous_line = line
-      end                       # @lines.each
+      end                       # lines.each
     end                         # initialize
+
+    # Get include data, when #+INCLUDE tag is used
+    # @link http://orgmode.org/manual/Include-files.html
+    def get_include_data(line)
+      return IO.read(line.include_file_path) if line.include_file_options.nil?
+
+      case line.include_file_options[0]
+      when ':lines'
+        # Get options
+        include_file_lines = line.include_file_options[1].gsub('"', '').split('-')
+        include_file_lines[0] = include_file_lines[0].empty? ? 1 : include_file_lines[0].to_i
+        include_file_lines[1] = include_file_lines[1].to_i if !include_file_lines[1].nil?
+
+        # Extract request lines. Note that the second index is excluded, according to the doc
+        line_index = 1
+        include_data = []
+        File.open(line.include_file_path, "r") do |fd|
+          while line_data = fd.gets
+            if (line_index >= include_file_lines[0] and (include_file_lines[1].nil? or line_index < include_file_lines[1]))
+              include_data << line_data.chomp
+            end
+            line_index += 1
+          end
+        end
+
+      when 'src', 'example', 'quote'
+        # Prepare tags
+        begin_tag = '#+BEGIN_%s' % [line.include_file_options[0].upcase]
+        if line.include_file_options[0] == 'src' and !line.include_file_options[1].nil?
+          begin_tag += ' ' + line.include_file_options[1]
+        end
+        end_tag = '#+END_%s' % [line.include_file_options[0].upcase]
+
+        # Get lines. Will be transformed into an array at processing
+        include_data = "%s\n%s\n%s" % [begin_tag, IO.read(line.include_file_path), end_tag]
+
+      else
+        include_data = []
+      end
+      # @todo: support ":minlevel"
+
+      include_data
+    end
 
     # Creates a new parser from the data in a given file
     def self.load(fname)
@@ -163,6 +276,27 @@ module Orgmode
       output
     end
 
+    # Exports the Org mode content into Markdown format
+    def to_markdown
+      mark_trees_for_export
+      output = ""
+      output_buffer = MarkdownOutputBuffer.new(output)
+
+      translate(@header_lines, output_buffer)
+      @headlines.each do |headline|
+        next if headline.export_state == :exclude
+        case headline.export_state
+        when :exclude
+          # NOTHING
+        when :headline_only
+          translate(headline.body_lines[0, 1], output_buffer)
+        when :all
+          translate(headline.body_lines, output_buffer)
+        end
+      end
+      output
+    end
+
     # Converts the loaded org-mode file to HTML.
     def to_html
       mark_trees_for_export
@@ -171,7 +305,8 @@ module Orgmode
         :export_heading_number => export_heading_number?,
         :export_todo => export_todo?,
         :use_sub_superscripts =>  use_sub_superscripts?,
-        :export_footnotes => export_footnotes?
+        :export_footnotes => export_footnotes?,
+        :link_abbrevs => @link_abbrevs
       }
       export_options[:skip_tables] = true if not export_tables?
       output = ""
